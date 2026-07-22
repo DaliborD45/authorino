@@ -193,7 +193,11 @@ run: generate manifests ## Runs the application against the Kubernetes cluster c
 build:git_sha=$(shell git rev-parse HEAD)
 build:dirty=$(shell $(PROJECT_DIR)/hack/check-git-dirty.sh || echo "unknown")
 build: generate ## Builds the manager binary
+ifeq (true,$(DATA_RACE))
+	CGO_ENABLED=1 go build -race -a -ldflags "-X main.version=$(VERSION) -X main.gitSHA=${git_sha} -X main.dirty=${dirty}" -o bin/authorino main.go
+else
 	CGO_ENABLED=0 go build -a -ldflags "-X main.version=$(VERSION) -X main.gitSHA=${git_sha} -X main.dirty=${dirty}" -o bin/authorino main.go
+endif
 
 docker-build:git_sha=$(shell git rev-parse HEAD)
 docker-build:dirty=$(shell $(PROJECT_DIR)/hack/check-git-dirty.sh || echo "unknown")
@@ -202,6 +206,7 @@ docker-build: ## Builds an image based on the current branch
 	  --build-arg version=$(VERSION) \
 		--build-arg git_sha=$(git_sha) \
 		--build-arg dirty=$(dirty) \
+		--build-arg data_race=$(DATA_RACE) \
 		$(CONTAINER_ENGINE_EXTRA_FLAGS) \
 		-t $(AUTHORINO_IMAGE) .
 
