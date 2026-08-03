@@ -166,6 +166,7 @@ func main() {
 		fmt.Println("error: ", err)
 		os.Exit(1)
 	}
+
 }
 
 func rootCmd() *cobra.Command {

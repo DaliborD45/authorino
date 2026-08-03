@@ -239,6 +239,15 @@ func (a *AuthService) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 func (a *AuthService) Check(parentContext gocontext.Context, req *envoy_auth.CheckRequest) (*envoy_auth.CheckResponse, error) {
 	logger := log.WithName("service").WithName("auth")
 
+	//TODO: delete test race condition
+	c := make(chan bool)
+	m := make(map[string]string)
+	go func() {
+		m["1"] = "a"
+		c <- true
+	}()
+	m["2"] = "b"
+	<-c
 	var requestData *envoy_auth.AttributeContext_HttpRequest
 	if req != nil && req.Attributes != nil && req.Attributes.Request != nil && req.Attributes.Request.Http != nil {
 		requestData = req.Attributes.Request.Http
