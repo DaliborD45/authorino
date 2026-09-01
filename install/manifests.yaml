@@ -3215,3 +3215,152 @@ rules:
   - get
   - list
   - update
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: authorino-deny-rego-httpsend
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: '!authorizer.group("authorino.kuadrant.io") .resource("authconfig-httpsend")
+      .namespace(object.metadata.namespace) .check("use") .allowed()'
+    name: user-not-httpsend-exempt
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - authorino.kuadrant.io
+      apiVersions:
+      - v1beta3
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - authconfigs
+  validations:
+  - expression: '!variables.usesHttpSend'
+    message: inline OPA/Rego policies (spec.authorization[*].opa.rego) must not use
+      the 'http.send' builtin, which lets Authorino make arbitrary outbound HTTP requests
+      (SSRF). Fetch external data via a metadata HTTP source with an allowlisted hostname
+      instead, or ask an admin for the 'authconfig-httpsend' role.
+    reason: Forbidden
+  variables:
+  - expression: has(object.spec.authorization) && object.spec.authorization.exists(k,
+      has(object.spec.authorization[k].opa) && has(object.spec.authorization[k].opa.rego)
+      && object.spec.authorization[k].opa.rego.contains("http.send"))
+    name: usesHttpSend
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: authorino-restrict-http-route
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - authorino.kuadrant.io
+      apiVersions:
+      - v1beta3
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - authconfigs
+  validations:
+  - expression: '!variables.hasUnverifiableEndpoint'
+    message: outbound URLs (authentication/metadata/authorization/callback) must use
+      a static endpoint with a literal hostname so it can be checked against the hostname
+      whitelist (dynamic 'urlExpression' or templated '{selector}' hosts are not allowed)
+    reason: Forbidden
+  - expression: size(variables.deniedHosts) == 0
+    message: you do not have a role that allows Authorino to make requests to one
+      or more of the configured hostnames
+    messageExpression: '"no role allows request to host(s): " + variables.deniedHosts.join(",
+      ")'
+    reason: Forbidden
+  variables:
+  - expression: 'has(object.spec.metadata) ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m,
+      has(m.http)).map(m, m.http) : []'
+    name: metadataHttp
+  - expression: 'has(object.spec.callbacks) ? object.spec.callbacks.map(k, object.spec.callbacks[k]).filter(c,
+      has(c.http)).map(c, c.http) : []'
+    name: callbackHttp
+  - expression: 'has(object.spec.authorization) ? object.spec.authorization.map(k,
+      object.spec.authorization[k]).filter(a, has(a.opa) && has(a.opa.externalPolicy)).map(a,
+      a.opa.externalPolicy) : []'
+    name: opaExternalHttp
+  - expression: variables.metadataHttp + variables.callbackHttp + variables.opaExternalHttp
+    name: httpEndpoints
+  - expression: variables.httpEndpoints.filter(e, has(e.url) && e.url != "").map(e,
+      e.url)
+    name: httpUrls
+  - expression: variables.httpEndpoints.filter(e, has(e.oauth2) && has(e.oauth2.tokenUrl)
+      && e.oauth2.tokenUrl != "").map(e, e.oauth2.tokenUrl)
+    name: httpTokenUrls
+  - expression: 'has(object.spec.authentication) ? object.spec.authentication.map(k,
+      object.spec.authentication[k]).filter(a, has(a.jwt) && has(a.jwt.jwksUrl) &&
+      a.jwt.jwksUrl != "").map(a, a.jwt.jwksUrl) : []'
+    name: jwksUrls
+  - expression: 'has(object.spec.authentication) ? object.spec.authentication.map(k,
+      object.spec.authentication[k]).filter(a, has(a.jwt) && has(a.jwt.issuerUrl)
+      && a.jwt.issuerUrl != "").map(a, a.jwt.issuerUrl) : []'
+    name: issuerUrls
+  - expression: 'has(object.spec.authentication) ? object.spec.authentication.map(k,
+      object.spec.authentication[k]).filter(a, has(a.oauth2Introspection) && has(a.oauth2Introspection.endpoint)
+      && a.oauth2Introspection.endpoint != "").map(a, a.oauth2Introspection.endpoint)
+      : []'
+    name: introspectionUrls
+  - expression: 'has(object.spec.metadata) ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m,
+      has(m.userInfo) && has(m.userInfo.userInfoUrl) && m.userInfo.userInfoUrl !=
+      "").map(m, m.userInfo.userInfoUrl) : []'
+    name: userInfoUrls
+  - expression: 'has(object.spec.metadata) ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m,
+      has(m.uma) && has(m.uma.endpoint) && m.uma.endpoint != "").map(m, m.uma.endpoint)
+      : []'
+    name: umaUrls
+  - expression: variables.httpUrls + variables.httpTokenUrls + variables.jwksUrls
+      + variables.issuerUrls + variables.introspectionUrls + variables.userInfoUrls
+      + variables.umaUrls
+    name: allUrls
+  - expression: 'has(object.spec.authorization) ? object.spec.authorization.map(k,
+      object.spec.authorization[k]).filter(a, has(a.spicedb) && has(a.spicedb.endpoint)
+      && a.spicedb.endpoint != "").map(a, a.spicedb.endpoint) : []'
+    name: spicedbEndpoints
+  - expression: variables.spicedbEndpoints.map(e, url("grpc://" + e).getHostname())
+    name: spicedbHosts
+  - expression: variables.httpEndpoints.exists(e, has(e.urlExpression) && e.urlExpression
+      != "")
+    name: hasUrlExpression
+  - expression: variables.allUrls.exists(u, !isURL(u) || url(u).getHostname() == ""
+      || url(u).getHostname().contains("{")) || variables.spicedbHosts.exists(h, h
+      == "" || h.contains("{"))
+    name: hasUnparseableUrl
+  - expression: variables.hasUrlExpression || variables.hasUnparseableUrl
+    name: hasUnverifiableEndpoint
+  - expression: variables.allUrls.filter(u, isURL(u) && url(u).getHostname() != ""
+      && !url(u).getHostname().contains("{")).map(u, url(u).getHostname()) + variables.spicedbHosts.filter(h,
+      h != "" && !h.contains("{"))
+    name: requestedHosts
+  - expression: variables.requestedHosts.filter(h, !authorizer.group("authorino.kuadrant.io")
+      .resource("http-resource") .subresource(h) .namespace(object.metadata.namespace)
+      .check("access") .allowed())
+    name: deniedHosts
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: authorino-deny-rego-httpsend
+spec:
+  policyName: authorino-deny-rego-httpsend
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: authorino-restrict-http-route
+spec:
+  policyName: authorino-restrict-http-route
+  validationActions:
+  - Deny

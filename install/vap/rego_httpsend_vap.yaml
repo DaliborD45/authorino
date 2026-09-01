@@ -1,0 +1,40 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: deny-rego-httpsend
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["authorino.kuadrant.io"]
+        apiVersions: ["v1beta3"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["authconfigs"]
+  matchConditions:
+    - name: user-not-httpsend-exempt
+      expression: >-
+        !authorizer.group("authorino.kuadrant.io")
+        .resource("authconfig-httpsend")
+        .namespace(object.metadata.namespace)
+        .check("use")
+        .allowed()
+  variables:
+    - name: usesHttpSend
+      expression: >-
+        has(object.spec.authorization)
+        && object.spec.authorization.exists(k,
+        has(object.spec.authorization[k].opa)
+        && has(object.spec.authorization[k].opa.rego)
+        && object.spec.authorization[k].opa.rego.contains("http.send"))
+  validations:
+    - expression: "!variables.usesHttpSend"
+      reason: Forbidden
+      message: "inline OPA/Rego policies (spec.authorization[*].opa.rego) must not use the 'http.send' builtin, which lets Authorino make arbitrary outbound HTTP requests (SSRF). Fetch external data via a metadata HTTP source with an allowlisted hostname instead, or ask an admin for the 'authconfig-httpsend' role."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: deny-rego-httpsend
+spec:
+  policyName: deny-rego-httpsend
+  validationActions: ["Deny"]

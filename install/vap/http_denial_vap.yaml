@@ -1,0 +1,112 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: restrict-http-route
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["authorino.kuadrant.io"]
+        apiVersions: ["v1beta3"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["authconfigs"]
+  variables:
+    - name: metadataHttp
+      expression: >-
+        has(object.spec.metadata)
+        ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m, has(m.http)).map(m, m.http)
+        : []
+    - name: callbackHttp
+      expression: >-
+        has(object.spec.callbacks)
+        ? object.spec.callbacks.map(k, object.spec.callbacks[k]).filter(c, has(c.http)).map(c, c.http)
+        : []
+    - name: opaExternalHttp
+      expression: >-
+        has(object.spec.authorization)
+        ? object.spec.authorization.map(k, object.spec.authorization[k]).filter(a, has(a.opa) && has(a.opa.externalPolicy)).map(a, a.opa.externalPolicy)
+        : []
+    - name: httpEndpoints
+      expression: variables.metadataHttp + variables.callbackHttp + variables.opaExternalHttp
+    - name: httpUrls
+      expression: >-
+        variables.httpEndpoints.filter(e, has(e.url) && e.url != "").map(e, e.url)
+    - name: httpTokenUrls
+      expression: >-
+        variables.httpEndpoints.filter(e, has(e.oauth2) && has(e.oauth2.tokenUrl) && e.oauth2.tokenUrl != "").map(e, e.oauth2.tokenUrl)
+    - name: jwksUrls
+      expression: >-
+        has(object.spec.authentication)
+        ? object.spec.authentication.map(k, object.spec.authentication[k]).filter(a, has(a.jwt) && has(a.jwt.jwksUrl) && a.jwt.jwksUrl != "").map(a, a.jwt.jwksUrl)
+        : []
+    - name: issuerUrls
+      expression: >-
+        has(object.spec.authentication)
+        ? object.spec.authentication.map(k, object.spec.authentication[k]).filter(a, has(a.jwt) && has(a.jwt.issuerUrl) && a.jwt.issuerUrl != "").map(a, a.jwt.issuerUrl)
+        : []
+    - name: introspectionUrls
+      expression: >-
+        has(object.spec.authentication)
+        ? object.spec.authentication.map(k, object.spec.authentication[k]).filter(a, has(a.oauth2Introspection) && has(a.oauth2Introspection.endpoint) && a.oauth2Introspection.endpoint != "").map(a, a.oauth2Introspection.endpoint)
+        : []
+    - name: userInfoUrls
+      expression: >-
+        has(object.spec.metadata)
+        ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m, has(m.userInfo) && has(m.userInfo.userInfoUrl) && m.userInfo.userInfoUrl != "").map(m, m.userInfo.userInfoUrl)
+        : []
+    - name: umaUrls
+      expression: >-
+        has(object.spec.metadata)
+        ? object.spec.metadata.map(k, object.spec.metadata[k]).filter(m, has(m.uma) && has(m.uma.endpoint) && m.uma.endpoint != "").map(m, m.uma.endpoint)
+        : []
+    - name: allUrls
+      expression: >-
+        variables.httpUrls + variables.httpTokenUrls
+        + variables.jwksUrls + variables.issuerUrls + variables.introspectionUrls
+        + variables.userInfoUrls + variables.umaUrls
+    - name: spicedbEndpoints
+      expression: >-
+        has(object.spec.authorization)
+        ? object.spec.authorization.map(k, object.spec.authorization[k]).filter(a, has(a.spicedb) && has(a.spicedb.endpoint) && a.spicedb.endpoint != "").map(a, a.spicedb.endpoint)
+        : []
+    - name: spicedbHosts
+      expression: >-
+        variables.spicedbEndpoints.map(e, url("grpc://" + e).getHostname())
+    - name: hasUrlExpression
+      expression: >-
+        variables.httpEndpoints.exists(e, has(e.urlExpression) && e.urlExpression != "")
+    - name: hasUnparseableUrl
+      expression: >-
+        variables.allUrls.exists(u, !isURL(u) || url(u).getHostname() == "" || url(u).getHostname().contains("{"))
+        || variables.spicedbHosts.exists(h, h == "" || h.contains("{"))
+    - name: hasUnverifiableEndpoint
+      expression: variables.hasUrlExpression || variables.hasUnparseableUrl
+    - name: requestedHosts
+      expression: >-
+        variables.allUrls.filter(u, isURL(u) && url(u).getHostname() != "" && !url(u).getHostname().contains("{")).map(u, url(u).getHostname())
+        + variables.spicedbHosts.filter(h, h != "" && !h.contains("{"))
+    - name: deniedHosts
+      expression: >-
+        variables.requestedHosts.filter(h,
+        !authorizer.group("authorino.kuadrant.io")
+        .resource("http-resource")
+        .subresource(h)
+        .namespace(object.metadata.namespace)
+        .check("access")
+        .allowed())
+  validations:
+    - expression: "!variables.hasUnverifiableEndpoint"
+      reason: Forbidden
+      message: "outbound URLs (authentication/metadata/authorization/callback) must use a static endpoint with a literal hostname so it can be checked against the hostname whitelist (dynamic 'urlExpression' or templated '{selector}' hosts are not allowed)"
+    - expression: "size(variables.deniedHosts) == 0"
+      reason: Forbidden
+      message: "you do not have a role that allows Authorino to make requests to one or more of the configured hostnames"
+      messageExpression: '"no role allows request to host(s): " + variables.deniedHosts.join(", ")'
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: restrict-http-route
+spec:
+  policyName: restrict-http-route
+  validationActions: ["Deny"]
