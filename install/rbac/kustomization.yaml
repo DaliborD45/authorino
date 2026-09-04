@@ -6,3 +6,5 @@ resources:
 - k8s_auth_role.yaml
 - auth_config_editor_role.yaml
 - auth_config_viewer_role.yaml
+- vap_httpsend_role.yaml
+- vap_external_opa_role.yaml

@@ -1,0 +1,12 @@
+# Grants a subject permission to use the 'http.send' builtin in inline OPA/Rego
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: httpsend
+rules:
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - authconfig-httpsend
+  verbs:
+  - use

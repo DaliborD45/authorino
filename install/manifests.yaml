@@ -3158,6 +3158,30 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  name: authorino-external-opa
+rules:
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - authconfig-external-opa
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: authorino-httpsend
+rules:
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - authconfig-httpsend
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
   name: authorino-manager-k8s-auth-role
 rules:
 - apiGroups:
@@ -3219,6 +3243,39 @@ rules:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
+  name: authorino-deny-external-opa
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: '!authorizer.group("authorino.kuadrant.io") .resource("authconfig-external-opa")
+      .namespace(object.metadata.namespace) .check("use") .allowed()'
+    name: user-not-external-opa-exempt
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - authorino.kuadrant.io
+      apiVersions:
+      - '*'
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - authconfigs
+  validations:
+  - expression: '!variables.usesExternalOpa'
+    message: 'OPA policies loaded from an external source (spec.authorization[*].opa.externalPolicy)
+      are not allowed: the Rego is fetched at runtime and cannot be scanned for the
+      ''http.send'' builtin at admission time (SSRF). Use an inline ''rego'' policy,
+      which is scanned, or ask an admin for the ''authconfig-external-opa'' role.'
+    reason: Forbidden
+  variables:
+  - expression: has(object.spec.authorization) && object.spec.authorization.exists(k,
+      has(object.spec.authorization[k].opa) && has(object.spec.authorization[k].opa.externalPolicy))
+    name: usesExternalOpa
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
   name: authorino-deny-rego-httpsend
 spec:
   failurePolicy: Fail
@@ -3231,7 +3288,7 @@ spec:
     - apiGroups:
       - authorino.kuadrant.io
       apiVersions:
-      - v1beta3
+      - '*'
       operations:
       - CREATE
       - UPDATE
@@ -3261,7 +3318,7 @@ spec:
     - apiGroups:
       - authorino.kuadrant.io
       apiVersions:
-      - v1beta3
+      - '*'
       operations:
       - CREATE
       - UPDATE
@@ -3271,7 +3328,7 @@ spec:
   - expression: '!variables.hasUnverifiableEndpoint'
     message: outbound URLs (authentication/metadata/authorization/callback) must use
       a static endpoint with a literal hostname so it can be checked against the hostname
-      whitelist (dynamic 'urlExpression' or templated '{selector}' hosts are not allowed)
+      allowlist (dynamic 'urlExpression' or templated '{selector}' hosts are not allowed)
     reason: Forbidden
   - expression: size(variables.deniedHosts) == 0
     message: you do not have a role that allows Authorino to make requests to one
@@ -3346,6 +3403,15 @@ spec:
       .resource("http-resource") .subresource(h) .namespace(object.metadata.namespace)
       .check("access") .allowed())
     name: deniedHosts
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: authorino-deny-external-opa
+spec:
+  policyName: authorino-deny-external-opa
+  validationActions:
+  - Deny
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
