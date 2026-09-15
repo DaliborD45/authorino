@@ -1,0 +1,17 @@
+# Full exemption from the 'restrict-http-route' ValidatingAdmissionPolicy.
+#
+# A subject bound to this role may reference any outbound hostname from an
+# AuthConfig, including dynamic 'urlExpression' endpoints, OPA policies loaded
+# from an external source and the 'http.send' Rego builtin. The policy is not
+# evaluated at all for these subjects, so no hostname allowlist applies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: unrestricted-http-route
+rules:
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - unrestricted-http-route
+  verbs:
+  - use

@@ -1,0 +1,26 @@
+# Static hostname allowlist enforced by the 'restrict-http-route'
+# ValidatingAdmissionPolicy.
+#
+# Template: add one entry per hostname Authorino is allowed to send requests to,
+# in the form 'authconfigs/<hostname>'. A subject bound to this role may only
+# reference those hostnames from an AuthConfig (authentication, metadata,
+# authorization and callback endpoints); every other hostname is denied at
+# admission time.
+#
+# Bind with a ClusterRoleBinding, or with a RoleBinding to allow the hostnames in
+# a single namespace only.
+#
+# Example:
+#   rules:
+#   - apiGroups:
+#     - authorino.kuadrant.io
+#     resources:
+#     - authconfigs/keycloak.example.com
+#     - authconfigs/userinfo.example.com
+#     verbs:
+#     - access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trusted-hostnames
+rules: []
