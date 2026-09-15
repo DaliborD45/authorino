@@ -7,4 +7,4 @@ resources:
 - auth_config_editor_role.yaml
 - auth_config_viewer_role.yaml
 - vap_trusted_hostnames_role.yaml
-- vap_unrestricted_http_route_role.yaml
+- vap_unrestricted_hostnames_role.yaml

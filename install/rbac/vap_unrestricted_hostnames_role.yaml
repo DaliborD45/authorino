@@ -7,11 +7,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: unrestricted-http-route
+  name: unrestricted-hostnames
 rules:
 - apiGroups:
   - authorino.kuadrant.io
   resources:
-  - unrestricted-http-route
+  - unrestricted-hostnames
   verbs:
   - use

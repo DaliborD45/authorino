@@ -3225,12 +3225,12 @@ rules: []
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: authorino-unrestricted-http-route
+  name: authorino-unrestricted-hostnames
 rules:
 - apiGroups:
   - authorino.kuadrant.io
   resources:
-  - unrestricted-http-route
+  - unrestricted-hostnames
   verbs:
   - use
 ---
@@ -3241,9 +3241,9 @@ metadata:
 spec:
   failurePolicy: Fail
   matchConditions:
-  - expression: '!authorizer.group("authorino.kuadrant.io") .resource("unrestricted-http-route")
+  - expression: '!authorizer.group("authorino.kuadrant.io") .resource("unrestricted-hostnames")
       .namespace(object.metadata.namespace) .check("use") .allowed()'
-    name: user-not-unrestricted
+    name: is-unrestricted-user
   matchConstraints:
     resourceRules:
     - apiGroups:
@@ -3260,13 +3260,13 @@ spec:
     message: inline OPA/Rego policies (spec.authorization[*].opa.rego) must not use
       the 'http.send' builtin, which lets Authorino make arbitrary outbound HTTP requests
       (SSRF). Fetch external data via a metadata HTTP source with an allowlisted hostname
-      instead, or ask an admin for the 'unrestricted-http-route' role.
+      instead, or ask an admin for the 'unrestricted-hostnames' role.
     reason: Forbidden
   - expression: '!variables.usesExternalOpa'
     message: 'OPA policies loaded from an external source (spec.authorization[*].opa.externalPolicy)
       are not allowed: the Rego is fetched at runtime and cannot be scanned for the
       ''http.send'' builtin at admission time (SSRF). Use an inline ''rego'' policy,
-      which is scanned, or ask an admin for the ''unrestricted-http-route'' role.'
+      which is scanned, or ask an admin for the ''unrestricted-hostnames'' role.'
     reason: Forbidden
   - expression: '!variables.hasUnverifiableEndpoint'
     message: outbound URLs (authentication/metadata/authorization/callback) must use
@@ -3279,7 +3279,7 @@ spec:
     message: you do not have a role that allows Authorino to make requests to one
       or more of the configured hostnames. Ask an admin to grant 'access' on 'authconfigs/<hostname>'
       for every hostname this AuthConfig references (see the 'trusted-hostnames' ClusterRole),
-      or for the 'unrestricted-http-route' role.
+      or for the 'unrestricted-hostnames' role.
     reason: Forbidden
   variables:
   - expression: has(object.spec.authorization) && object.spec.authorization.exists(k,
